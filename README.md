@@ -7,7 +7,7 @@ Next.js project that scans every video and Short of a YouTube channel
 - a dedicated sheet `Agents vs Automation vs DW` with videos about agents, automation or digital workers (most overlapping concepts first)
 - a `Summary` sheet
 
-Topics are assigned by keyword rules in `lib/topics.ts` (edit them freely).
+Topics are assigned by Gemini when `GEMINI_API_KEY` is set (free key from Google AI Studio; model via `GEMINI_MODEL`), otherwise by keyword rules in `lib/topics.ts`. If a Gemini batch fails, those videos fall back to the keyword rules. Edit topics in `lib/topics.ts` and the hints in `lib/gemini.ts`.
 
 ## Setup
 
