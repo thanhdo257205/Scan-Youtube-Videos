@@ -49,3 +49,13 @@ Gemini looks at each video's thumbnail and labels it Animation / Screen recordin
 - `GEMINI_API_KEYS=key1,key2` rotates Gemini keys when one hits a rate limit (429); a key that is rejected or out of daily quota is skipped for the rest of the run. Gemini quota is per Google Cloud project, so keys only help if they come from different projects.
 - Topic classification falls back Gemini -> Groq (`GROQ_API_KEY`) -> OpenRouter (`OPENROUTER_API_KEY`) -> keyword rules. These fallbacks are text-only; `--style` (thumbnail analysis) uses Gemini keys only.
 - Rate-limited and overloaded requests are retried automatically.
+
+## Style analysis for an existing channels file
+
+```bash
+npm run channels:style                                   # youtube-channels.xlsx -> youtube-channels-style.xlsx
+npm run channels:style in.xlsx out.xlsx                  # custom files
+CHANNEL_STYLE_SAMPLES=8 npm run channels:style           # videos sampled per channel (default 5)
+```
+
+Reads the `Channels` sheet made by `npm run channels` (needs a `YouTube link` column), takes each channel's latest videos, has Gemini classify their thumbnails, and writes a copy with `Dominant style`, `Animation share`, `Videos analysed`, `Style breakdown` and `Sampled videos` columns plus an `Animation channels` sheet (channels with at least 50% Animation). Needs `YOUTUBE_API_KEY` and a Gemini key; costs about 2 YouTube quota units per channel.

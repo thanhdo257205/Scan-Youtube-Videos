@@ -64,7 +64,7 @@ async function discover(keywords: string[], key: string, pages: number): Promise
   return found;
 }
 
-async function mapPool<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+export async function mapPool<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
   await Promise.all(

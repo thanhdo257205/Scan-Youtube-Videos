@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "scan": "tsx --env-file-if-exists=.env.local scripts/scan.ts",
-    "channels": "tsx --env-file-if-exists=.env.local scripts/channels.ts"
+    "channels": "tsx --env-file-if-exists=.env.local scripts/channels.ts",
+    "channels:style": "tsx --env-file-if-exists=.env.local scripts/channel-style.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

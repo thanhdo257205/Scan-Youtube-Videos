@@ -1,0 +1,178 @@
+import ExcelJS from "exceljs";
+import { mapPool } from "./channels";
+import { analyzeStyles, TARGET_STYLE } from "./style";
+import type { ClassifiedVideo } from "./types";
+import { api } from "./youtube";
+
+interface Sample {
+  id: string;
+  title: string;
+  style?: string;
+  confidence?: number;
+}
+
+export interface ChannelStyle {
+  samples: Sample[];
+  analysed: number;
+  dominant: string;
+  breakdown: string;
+  targetShare: number | null;
+}
+
+type ChannelRef = { id: string } | { handle: string };
+
+function cellText(c: ExcelJS.Cell): string {
+  const v = c.value as any;
+  if (v && typeof v === "object") return String(v.hyperlink ?? v.text ?? "");
+  return String(v ?? "");
+}
+
+export function parseRef(idCell: string, link: string): ChannelRef | undefined {
+  if (/^UC[\w-]{22}$/.test(idCell.trim())) return { id: idCell.trim() };
+  const id = link.match(/youtube\.com\/channel\/(UC[\w-]{22})/);
+  if (id) return { id: id[1] };
+  const handle = link.match(/youtube\.com\/(@[^/?#]+)/);
+  if (handle) return { handle: decodeURIComponent(handle[1]) };
+  return undefined;
+}
+
+async function latestVideos(ref: ChannelRef, count: number, key: string): Promise<Sample[]> {
+  const ch = await api<{ items?: { contentDetails: { relatedPlaylists: { uploads: string } } }[] }>(
+    "channels",
+    { part: "contentDetails", ...("id" in ref ? { id: ref.id } : { forHandle: ref.handle }) },
+    key,
+  );
+  const uploads = ch.items?.[0]?.contentDetails.relatedPlaylists.uploads;
+  if (!uploads) return [];
+  const pl = await api<{ items: { contentDetails: { videoId: string }; snippet: { title: string } }[] }>(
+    "playlistItems",
+    { part: "snippet,contentDetails", playlistId: uploads, maxResults: String(count) },
+    key,
+  );
+  return pl.items.map((i) => ({ id: i.contentDetails.videoId, title: i.snippet.title }));
+}
+
+export function summarise(samples: Sample[]): ChannelStyle {
+  const done = samples.filter((s) => s.style);
+  const counts = new Map<string, number>();
+  for (const s of done) counts.set(s.style!, (counts.get(s.style!) ?? 0) + 1);
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return {
+    samples,
+    analysed: done.length,
+    dominant: ranked[0]?.[0] ?? "n/a",
+    breakdown: ranked.map(([s, n]) => `${s} ${n}`).join(", "),
+    targetShare: done.length ? (counts.get(TARGET_STYLE) ?? 0) / done.length : null,
+  };
+}
+
+export interface Options {
+  input: string;
+  output: string;
+  key: string;
+  samples: number;
+  onProgress?: (msg: string) => void;
+}
+
+export async function addChannelStyles(o: Options): Promise<{ channels: number; animation: number }> {
+  const log = o.onProgress ?? (() => {});
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(o.input);
+  const ws = wb.getWorksheet("Channels") ?? wb.worksheets[0];
+
+  const col = new Map<string, number>();
+  ws.getRow(1).eachCell((c, n) => col.set(String(c.value), n));
+  const linkCol = col.get("YouTube link");
+  if (!linkCol) throw new Error('Column "YouTube link" not found; is this a file made by `npm run channels`?');
+  const idCol = col.get("Channel ID");
+
+  const rows: { n: number; ref: ChannelRef }[] = [];
+  for (let n = 2; n <= ws.rowCount; n++) {
+    const ref = parseRef(idCol ? cellText(ws.getRow(n).getCell(idCol)) : "", cellText(ws.getRow(n).getCell(linkCol)));
+    if (ref) rows.push({ n, ref });
+  }
+  log(`Reading latest ${o.samples} videos of ${rows.length} channels...`);
+
+  const byRow = new Map<number, Sample[]>();
+  await mapPool(rows, 5, async ({ n, ref }) => {
+    try {
+      byRow.set(n, await latestVideos(ref, o.samples, o.key));
+    } catch (e) {
+      console.warn(`Row ${n}: ${e instanceof Error ? e.message : e}`);
+      byRow.set(n, []);
+    }
+  });
+
+  // One shared run so thumbnails are batched across channels.
+  const all: ClassifiedVideo[] = [...byRow.values()].flat().map((s) => ({
+    id: s.id,
+    title: s.title,
+    description: "",
+    tags: [],
+    publishedAt: "",
+    durationSeconds: 0,
+    isShort: false,
+    viewCount: 0,
+    likeCount: 0,
+    url: `https://www.youtube.com/watch?v=${s.id}`,
+    topic: "",
+  }));
+  const analysed = new Map((await analyzeStyles(all, log)).map((v) => [v.id, v]));
+  for (const samples of byRow.values()) {
+    for (const s of samples) {
+      s.style = analysed.get(s.id)?.style;
+      s.confidence = analysed.get(s.id)?.styleConfidence;
+    }
+  }
+
+  const results = new Map([...byRow].map(([n, samples]) => [n, summarise(samples)]));
+  return writeResults(wb, ws, results, o.output);
+}
+
+export async function writeResults(
+  wb: ExcelJS.Workbook,
+  ws: ExcelJS.Worksheet,
+  results: Map<number, ChannelStyle>,
+  output: string,
+): Promise<{ channels: number; animation: number }> {
+  const base = ws.columnCount;
+  const heads = ["Dominant style", `${TARGET_STYLE} share`, "Videos analysed", "Style breakdown", "Sampled videos"];
+  const headRow = ws.getRow(1);
+  heads.forEach((h, i) => {
+    const c = headRow.getCell(base + 1 + i);
+    c.value = h;
+    c.style = { ...headRow.getCell(1).style };
+  });
+  [18, 14, 10, 34, 70].forEach((w, i) => (ws.getColumn(base + 1 + i).width = w));
+
+  let animation = 0;
+  for (const [n, r] of results) {
+    const row = ws.getRow(n);
+    row.getCell(base + 1).value = r.dominant;
+    row.getCell(base + 2).value = r.targetShare ?? "";
+    row.getCell(base + 2).numFmt = "0%";
+    row.getCell(base + 3).value = r.analysed;
+    row.getCell(base + 4).value = r.breakdown;
+    row.getCell(base + 5).value = r.samples.map((s) => `${s.title} [${s.style ?? "?"}]`).join("\n");
+    row.getCell(base + 5).alignment = { wrapText: true, vertical: "top" };
+    if ((r.targetShare ?? 0) >= 0.5) animation++;
+  }
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: base + heads.length } };
+
+  // Separate sheet with the channels that mostly use the target style.
+  const name = `${TARGET_STYLE} channels`;
+  const out = wb.addWorksheet(name);
+  const colOf = new Map<string, number>();
+  headRow.eachCell((c, n) => colOf.set(String(c.value), n));
+  const pick = ["Channel", "YouTube link", "Subscribers"].filter((h) => colOf.has(h));
+  out.columns = [...pick, `${TARGET_STYLE} share`, "Breakdown"].map((h) => ({ header: h, width: h === "YouTube link" ? 46 : 26 }));
+  out.getRow(1).font = { bold: true };
+  const winners = [...results].filter(([, r]) => (r.targetShare ?? 0) >= 0.5).sort((a, b) => b[1].targetShare! - a[1].targetShare!);
+  for (const [n, r] of winners) {
+    const src = ws.getRow(n);
+    out.addRow([...pick.map((h) => src.getCell(colOf.get(h)!).value), r.targetShare, r.breakdown]);
+    out.lastRow!.getCell(pick.length + 1).numFmt = "0%";
+  }
+  await wb.xlsx.writeFile(output);
+  return { channels: results.size, animation };
+}
