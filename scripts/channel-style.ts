@@ -1,7 +1,7 @@
 import { addChannelStyles } from "../lib/channel-style";
 import { geminiKeys } from "../lib/llm";
 
-// Usage: npm run channels:style [input.xlsx] [output.xlsx] [--min-subs=1000] [--with-concepts] [--limit=50]
+// Usage: npm run channels:style [input.xlsx] [output.xlsx] [--min-subs=1000] [--with-concepts] [--limit=50] [--active-days=30]
 const args = process.argv.slice(2);
 const flag = (name: string) => args.find((a) => a === `--${name}` || a.startsWith(`--${name}=`));
 const num = (name: string) => {
@@ -28,10 +28,11 @@ addChannelStyles({
   minSubs: num("min-subs"),
   withConcepts: !!flag("with-concepts"),
   limit: num("limit"),
+  activeDays: num("active-days"),
   onProgress: console.log,
 })
   .then((r) => {
-    console.log(`Analysed ${r.channels} channels (${r.animation} mostly Animation) -> ${output}`);
+    console.log(`Analysed ${r.channels} channels (${r.animation} mostly Animation, ${r.inactive} inactive) -> ${output}`);
     if (r.incomplete) {
       console.warn(`\nPARTIAL RESULT: ${r.incomplete}`);
       console.warn("Channels without a style were not analysed. Run the same command again later to finish them (progress is cached).");

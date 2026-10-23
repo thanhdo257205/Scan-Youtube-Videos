@@ -65,6 +65,7 @@ Filters and resuming for `channels:style`:
 ```bash
 npm run channels:style -- --with-concepts --min-subs=1000      # only relevant, non-tiny channels
 npm run channels:style -- --limit=50                           # first 50 matching channels (quick test)
+npm run channels:style -- --active-days=30                     # skip channels with no upload in the last 30 days
 ```
 
 Analysed thumbnails are cached in `.style-cache.json` (ignored by git), so after an interruption or error just run the same command again and it continues where it stopped. The cache is discarded automatically if the model or the style descriptions change. Network errors ("fetch failed") are retried automatically.

@@ -7,6 +7,7 @@ import { api } from "./youtube";
 interface Sample {
   id: string;
   title: string;
+  publishedAt?: string;
   style?: string;
   confidence?: number;
 }
@@ -17,6 +18,9 @@ export interface ChannelStyle {
   dominant: string;
   breakdown: string;
   targetShare: number | null;
+  /** Date (yyyy-mm-dd) of the newest sampled video. */
+  lastUpload?: string;
+  inactive?: boolean;
 }
 
 type ChannelRef = { id: string } | { handle: string };
@@ -44,7 +48,7 @@ async function latestVideos(ref: ChannelRef, count: number, key: string): Promis
   );
   const uploads = ch.items?.[0]?.contentDetails.relatedPlaylists.uploads;
   if (!uploads) return [];
-  let pl: { items: { contentDetails: { videoId: string }; snippet: { title: string } }[] };
+  let pl: { items: { contentDetails: { videoId: string; videoPublishedAt?: string }; snippet: { title: string } }[] };
   try {
     pl = await api("playlistItems", { part: "snippet,contentDetails", playlistId: uploads, maxResults: String(count) }, key);
   } catch (e) {
@@ -52,7 +56,7 @@ async function latestVideos(ref: ChannelRef, count: number, key: string): Promis
     if (e instanceof Error && /playlistNotFound/.test(e.message)) return [];
     throw e;
   }
-  return pl.items.map((i) => ({ id: i.contentDetails.videoId, title: i.snippet.title }));
+  return pl.items.map((i) => ({ id: i.contentDetails.videoId, title: i.snippet.title, publishedAt: i.contentDetails.videoPublishedAt }));
 }
 
 export function summarise(samples: Sample[]): ChannelStyle {
@@ -66,6 +70,7 @@ export function summarise(samples: Sample[]): ChannelStyle {
     dominant: ranked[0]?.[0] ?? "n/a",
     breakdown: ranked.map(([s, n]) => `${s} ${n}`).join(", "),
     targetShare: done.length ? (counts.get(TARGET_STYLE) ?? 0) / done.length : null,
+    lastUpload: samples.map((s) => s.publishedAt).filter(Boolean).sort().at(-1)?.slice(0, 10),
   };
 }
 
@@ -80,12 +85,16 @@ export interface Options {
   withConcepts?: boolean;
   /** Analyse at most this many channels (in file order). */
   limit?: number;
+  /** Drop channels whose newest video is older than this many days (or that have no videos). */
+  activeDays?: number;
   onProgress?: (msg: string) => void;
 }
 
 export interface Outcome {
   channels: number;
   animation: number;
+  /** Channels skipped because they have not uploaded recently. */
+  inactive: number;
   /** Set when Gemini stopped working; the file then holds partial results. */
   incomplete?: string;
 }
@@ -129,6 +138,22 @@ export async function addChannelStyles(o: Options): Promise<Outcome> {
     }
   });
 
+  // Drop channels with no recent upload before spending any Gemini quota on them.
+  const inactive = new Map<number, ChannelStyle>();
+  if (o.activeDays) {
+    const cutoff = Date.now() - o.activeDays * 86_400_000;
+    for (const [n, samples] of [...byRow]) {
+      const newest = samples.map((x) => x.publishedAt).filter(Boolean).sort().at(-1);
+      if (samples.length && !newest) continue; // dates unavailable: keep the channel
+      if (!newest || Date.parse(newest) < cutoff) {
+        const last = newest?.slice(0, 10);
+        inactive.set(n, { samples: [], analysed: 0, dominant: "Inactive", breakdown: last ? `No upload in ${o.activeDays} days` : "No videos", targetShare: null, lastUpload: last, inactive: true });
+        byRow.delete(n);
+      }
+    }
+    if (inactive.size) log(`Skipping ${inactive.size} channels without an upload in the last ${o.activeDays} days`);
+  }
+
   // One shared run so thumbnails are batched across channels.
   const all: ClassifiedVideo[] = [...byRow.values()].flat().map((s) => ({
     id: s.id,
@@ -160,9 +185,10 @@ export async function addChannelStyles(o: Options): Promise<Outcome> {
     }
   }
 
-  const results = new Map([...byRow].map(([n, samples]) => [n, summarise(samples)]));
+  const results = new Map<number, ChannelStyle>([...byRow].map(([n, samples]) => [n, summarise(samples)] as [number, ChannelStyle]));
+  for (const [n, r] of inactive) results.set(n, r);
   const written = await writeResults(wb, ws, results, o.output);
-  return { ...written, incomplete };
+  return { ...written, inactive: inactive.size, incomplete };
 }
 
 export async function writeResults(
@@ -172,14 +198,14 @@ export async function writeResults(
   output: string,
 ): Promise<{ channels: number; animation: number }> {
   const base = ws.columnCount;
-  const heads = ["Dominant style", `${TARGET_STYLE} share`, "Videos analysed", "Style breakdown", "Sampled videos"];
+  const heads = ["Dominant style", `${TARGET_STYLE} share`, "Videos analysed", "Style breakdown", "Last upload", "Sampled videos"];
   const headRow = ws.getRow(1);
   heads.forEach((h, i) => {
     const c = headRow.getCell(base + 1 + i);
     c.value = h;
     c.style = { ...headRow.getCell(1).style };
   });
-  [18, 14, 10, 34, 70].forEach((w, i) => (ws.getColumn(base + 1 + i).width = w));
+  [18, 14, 10, 34, 13, 70].forEach((w, i) => (ws.getColumn(base + 1 + i).width = w));
 
   let animation = 0;
   for (const [n, r] of results) {
@@ -189,8 +215,9 @@ export async function writeResults(
     row.getCell(base + 2).numFmt = "0%";
     row.getCell(base + 3).value = r.analysed;
     row.getCell(base + 4).value = r.breakdown;
-    row.getCell(base + 5).value = r.samples.map((s) => `${s.title} [${s.style ?? "?"}]`).join("\n");
-    row.getCell(base + 5).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(base + 5).value = r.lastUpload ?? "";
+    row.getCell(base + 6).value = r.samples.map((s) => `${s.title} [${s.style ?? "?"}]`).join("\n");
+    row.getCell(base + 6).alignment = { wrapText: true, vertical: "top" };
     if ((r.targetShare ?? 0) >= 0.5) animation++;
   }
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: base + heads.length } };

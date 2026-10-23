@@ -16,6 +16,10 @@ for c in chans:
         if not os.path.exists(p):
             subprocess.run(["curl", "-sS", "-m", "20", "-f", "-o", p, f"https://i.ytimg.com/vi/{v['id']}/mqdefault.jpg"])
 
+for old in os.listdir(f"{work}/montages"):  # drop contact sheets from earlier runs
+    if old.startswith("batch_"):
+        os.remove(f"{work}/montages/{old}")
+
 for b in range(0, len(chans), PER):
     group = chans[b:b + PER]
     im = Image.new("RGB", (W * 5, (H + LABEL) * len(group)), "white")
