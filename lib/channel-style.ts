@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { mapPool } from "./channels";
-import { analyzeStyles, TARGET_STYLE } from "./style";
+import { analyzeStyles, StyleAbort, TARGET_STYLE } from "./style";
 import type { ClassifiedVideo } from "./types";
 import { api } from "./youtube";
 
@@ -83,7 +83,14 @@ export interface Options {
   onProgress?: (msg: string) => void;
 }
 
-export async function addChannelStyles(o: Options): Promise<{ channels: number; animation: number }> {
+export interface Outcome {
+  channels: number;
+  animation: number;
+  /** Set when Gemini stopped working; the file then holds partial results. */
+  incomplete?: string;
+}
+
+export async function addChannelStyles(o: Options): Promise<Outcome> {
   const log = o.onProgress ?? (() => {});
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(o.input);
@@ -136,7 +143,16 @@ export async function addChannelStyles(o: Options): Promise<{ channels: number; 
     url: `https://www.youtube.com/watch?v=${s.id}`,
     topic: "",
   }));
-  const analysed = new Map((await analyzeStyles(all, log)).map((v) => [v.id, v]));
+  let incomplete: string | undefined;
+  let styled = all;
+  try {
+    styled = await analyzeStyles(all, log);
+  } catch (e) {
+    if (!(e instanceof StyleAbort)) throw e;
+    incomplete = e.message;
+    styled = e.partial; // keep what was analysed so far
+  }
+  const analysed = new Map(styled.map((v) => [v.id, v]));
   for (const samples of byRow.values()) {
     for (const s of samples) {
       s.style = analysed.get(s.id)?.style;
@@ -145,7 +161,8 @@ export async function addChannelStyles(o: Options): Promise<{ channels: number; 
   }
 
   const results = new Map([...byRow].map(([n, samples]) => [n, summarise(samples)]));
-  return writeResults(wb, ws, results, o.output);
+  const written = await writeResults(wb, ws, results, o.output);
+  return { ...written, incomplete };
 }
 
 export async function writeResults(

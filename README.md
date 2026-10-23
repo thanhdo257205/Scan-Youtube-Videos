@@ -68,3 +68,5 @@ npm run channels:style -- --limit=50                           # first 50 matchi
 ```
 
 Analysed thumbnails are cached in `.style-cache.json` (ignored by git), so after an interruption or error just run the same command again and it continues where it stopped. The cache is discarded automatically if the model or the style descriptions change. Network errors ("fetch failed") are retried automatically.
+
+If Gemini runs out of quota during style analysis, the run no longer loses everything: the Excel file is still written with the channels/videos analysed so far (the rest stay empty / `n/a`) and a `PARTIAL RESULT` warning is printed. Run the same command again after the quota resets to finish the remaining ones from the cache.

@@ -30,7 +30,13 @@ addChannelStyles({
   limit: num("limit"),
   onProgress: console.log,
 })
-  .then((r) => console.log(`Analysed ${r.channels} channels (${r.animation} mostly Animation) -> ${output}`))
+  .then((r) => {
+    console.log(`Analysed ${r.channels} channels (${r.animation} mostly Animation) -> ${output}`);
+    if (r.incomplete) {
+      console.warn(`\nPARTIAL RESULT: ${r.incomplete}`);
+      console.warn("Channels without a style were not analysed. Run the same command again later to finish them (progress is cached).");
+    }
+  })
   .catch((e) => {
     console.error(e instanceof Error ? e.message : e);
     console.error("Results analysed so far are cached in .style-cache.json; run the same command again to resume.");

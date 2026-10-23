@@ -4,6 +4,16 @@ import type { ClassifiedVideo } from "./types";
 
 export const STYLES = ["Animation", "Screen recording", "Talking head", "Slides / diagram", "Other"] as const;
 export type VisualStyle = (typeof STYLES)[number];
+/** Thrown when Gemini keeps failing; carries every video with the styles obtained so far. */
+export class StyleAbort extends Error {
+  constructor(
+    message: string,
+    readonly partial: ClassifiedVideo[],
+  ) {
+    super(message);
+  }
+}
+
 export const TARGET_STYLE: VisualStyle = "Animation";
 
 // Edit (or override with STYLE_ANIMATION_DESCRIPTION) to match what "Animation" means for you.
@@ -114,7 +124,10 @@ export async function analyzeStyles(
         const msg = e instanceof Error ? e.message : String(e);
         console.warn(`Style batch ${i / BATCH + 1} failed: ${msg.split("\n")[0].slice(0, 200)}`);
         if (++failures >= 3) {
-          throw new Error(`Stopping: ${failures} batches in a row failed (last: ${msg.slice(0, 300)}). Check GEMINI_API_KEY / GEMINI_MODEL.`);
+          throw new StyleAbort(
+            `Stopping: ${failures} batches in a row failed (last: ${msg.slice(0, 300)}). Check GEMINI_API_KEY / GEMINI_MODEL or wait for the quota to reset.`,
+            all,
+          );
         }
       }
     }
