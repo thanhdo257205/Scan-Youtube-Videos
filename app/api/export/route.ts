@@ -2,11 +2,13 @@ import { scanChannel } from "../../../lib/scan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function GET(req: Request) {
-  const handle = new URL(req.url).searchParams.get("handle") ?? undefined;
+  const params = new URL(req.url).searchParams;
+  const handle = params.get("handle") ?? undefined;
   try {
-    const { workbook } = await scanChannel(handle);
+    const { workbook } = await scanChannel(handle, { style: params.get("style") === "1" });
     const buf = await workbook.xlsx.writeBuffer();
     return new Response(buf as ArrayBuffer, {
       headers: {

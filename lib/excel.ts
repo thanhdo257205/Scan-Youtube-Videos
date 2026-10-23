@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import type { ClassifiedVideo } from "./types";
+import { TARGET_STYLE } from "./style";
 import { focusConcepts, OTHER_TOPIC, TOPICS, type TopicDef } from "./topics";
 
 const COLUMNS = [
@@ -10,6 +11,8 @@ const COLUMNS = [
   { header: "Duration", key: "duration", width: 10 },
   { header: "Views", key: "views", width: 11 },
   { header: "Likes", key: "likes", width: 9 },
+  { header: "Visual style", key: "style", width: 17 },
+  { header: "Conf.", key: "conf", width: 7 },
   { header: "Link", key: "link", width: 48 },
 ];
 
@@ -59,12 +62,15 @@ function addVideoRows(ws: ExcelJS.Worksheet, videos: ClassifiedVideo[], extra?: 
       duration: fmtDuration(v.durationSeconds),
       views: v.viewCount,
       likes: v.likeCount,
+      style: v.style ?? "",
+      conf: v.styleConfidence ?? "",
       link: { text: v.url, hyperlink: v.url },
       ...(extra?.(v) ?? {}),
     });
     row.getCell("link").font = { color: { argb: "FF0563C1" }, underline: true };
     row.getCell("views").numFmt = "#,##0";
     row.getCell("likes").numFmt = "#,##0";
+    row.getCell("conf").numFmt = "0%";
   });
 }
 
@@ -93,6 +99,16 @@ export async function buildWorkbook(videos: ClassifiedVideo[], channel: string):
     addVideoRows(ws, list);
     styleSheet(ws, topic, false);
     summary.addRow({ sheet: topic.name, videos: list.filter((v) => !v.isShort).length, shorts: list.filter((v) => v.isShort).length });
+  }
+
+  // Style sheet: videos whose thumbnail looks like the target style (only when style analysis ran).
+  if (videos.some((v) => v.style)) {
+    const styled = sorted.filter((v) => v.style === TARGET_STYLE);
+    const sws = wb.addWorksheet(`${TARGET_STYLE} style`);
+    sws.columns = [...COLUMNS, { header: "Topic", key: "topic", width: 22 }];
+    addVideoRows(sws, styled, (v) => ({ topic: v.topic }));
+    styleSheet(sws, { name: "style", color: "FF0E7490", light: "FFCFFAFE", keywords: [] }, true);
+    summary.addRow({ sheet: `${TARGET_STYLE} style`, videos: styled.filter((v) => !v.isShort).length, shorts: styled.filter((v) => v.isShort).length });
   }
 
   // Focus sheet: agents vs. automation vs. digital workers.

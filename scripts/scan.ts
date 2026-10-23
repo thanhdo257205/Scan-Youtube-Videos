@@ -1,9 +1,11 @@
 import { scanChannel } from "../lib/scan";
 
-const out = process.argv[2] || "youtube-videos.xlsx";
-const handle = process.argv[3];
+// Usage: npm run scan [output.xlsx] [@handle] [--style]
+const args = process.argv.slice(2);
+const style = args.includes("--style");
+const [out = "youtube-videos.xlsx", handle] = args.filter((a) => !a.startsWith("--"));
 
-scanChannel(handle)
+scanChannel(handle, { style, onProgress: console.log })
   .then(async ({ workbook, count }) => {
     await workbook.xlsx.writeFile(out);
     console.log(`Wrote ${count} videos to ${out}`);

@@ -13,4 +13,7 @@ export interface VideoItem {
 
 export interface ClassifiedVideo extends VideoItem {
   topic: string;
+  /** Visual style from thumbnail analysis (only set when style analysis ran). */
+  style?: string;
+  styleConfidence?: number;
 }

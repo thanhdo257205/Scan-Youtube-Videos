@@ -35,3 +35,11 @@ SEARCH_PAGES=3 npm run channels                    # deeper search (more API quo
 or `GET /api/channels?q=AI%20agents&q=digital%20workers` with `npm run dev`.
 
 Channels are found with the YouTube Data API (`search.list` on channels and videos, ~100 quota units per page per keyword) and nothing is filtered out; they are ranked by relevance. Social links (X, Facebook, Instagram, LinkedIn, TikTok, Threads, Discord, Telegram, GitHub, Skool), websites and emails come from the channel description and the About-page "Links" section (read best-effort through YouTube's internal API, so it may break if YouTube changes it).
+
+## Visual style (thumbnail analysis)
+
+```bash
+npm run scan -- --style     # needs GEMINI_API_KEY
+```
+
+Gemini looks at each video's thumbnail and labels it Animation / Screen recording / Talking head / Slides / Other, adding `Visual style` and `Conf.` columns plus a separate `Animation style` sheet. A thumbnail is only a hint of the video, so check low-confidence rows. Describe what "Animation" means for you in `STYLE_ANIMATION_DESCRIPTION` (see `.env.example`). Free-tier rate limits are respected by pausing between batches, so a 500-video channel takes several minutes.
