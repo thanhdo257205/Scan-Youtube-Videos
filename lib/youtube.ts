@@ -4,7 +4,7 @@ const API = "https://www.googleapis.com/youtube/v3";
 // YouTube Shorts can be up to 3 minutes long.
 const SHORT_MAX_SECONDS = 180;
 
-async function api<T>(path: string, params: Record<string, string>, key: string): Promise<T> {
+export async function api<T>(path: string, params: Record<string, string>, key: string): Promise<T> {
   const qs = new URLSearchParams({ ...params, key });
   const res = await fetch(`${API}/${path}?${qs}`);
   if (!res.ok) {
