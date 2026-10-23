@@ -18,6 +18,8 @@ export interface ChannelStyle {
   dominant: string;
   breakdown: string;
   targetShare: number | null;
+  /** Share of videos that are Animation or AI-generated visuals (i.e. made with AI/animation tools). */
+  aiShare?: number | null;
   /** Date (yyyy-mm-dd) of the newest sampled video. */
   lastUpload?: string;
   inactive?: boolean;
@@ -70,6 +72,7 @@ export function summarise(samples: Sample[]): ChannelStyle {
     dominant: ranked[0]?.[0] ?? "n/a",
     breakdown: ranked.map(([s, n]) => `${s} ${n}`).join(", "),
     targetShare: done.length ? (counts.get(TARGET_STYLE) ?? 0) / done.length : null,
+    aiShare: done.length ? ((counts.get(TARGET_STYLE) ?? 0) + (counts.get("AI-generated visuals") ?? 0)) / done.length : null,
     lastUpload: samples.map((s) => s.publishedAt).filter(Boolean).sort().at(-1)?.slice(0, 10),
   };
 }
@@ -198,14 +201,14 @@ export async function writeResults(
   output: string,
 ): Promise<{ channels: number; animation: number }> {
   const base = ws.columnCount;
-  const heads = ["Dominant style", `${TARGET_STYLE} share`, "Videos analysed", "Style breakdown", "Last upload", "Sampled videos"];
+  const heads = ["Dominant style", `${TARGET_STYLE} share`, "AI-made share", "Videos analysed", "Style breakdown", "Last upload", "Sampled videos"];
   const headRow = ws.getRow(1);
   heads.forEach((h, i) => {
     const c = headRow.getCell(base + 1 + i);
     c.value = h;
     c.style = { ...headRow.getCell(1).style };
   });
-  [18, 14, 10, 34, 13, 70].forEach((w, i) => (ws.getColumn(base + 1 + i).width = w));
+  [18, 14, 14, 10, 34, 13, 70].forEach((w, i) => (ws.getColumn(base + 1 + i).width = w));
 
   let animation = 0;
   for (const [n, r] of results) {
@@ -213,11 +216,13 @@ export async function writeResults(
     row.getCell(base + 1).value = r.dominant;
     row.getCell(base + 2).value = r.targetShare ?? "";
     row.getCell(base + 2).numFmt = "0%";
-    row.getCell(base + 3).value = r.analysed;
-    row.getCell(base + 4).value = r.breakdown;
-    row.getCell(base + 5).value = r.lastUpload ?? "";
-    row.getCell(base + 6).value = r.samples.map((s) => `${s.title} [${s.style ?? "?"}]`).join("\n");
-    row.getCell(base + 6).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(base + 3).value = r.aiShare ?? "";
+    row.getCell(base + 3).numFmt = "0%";
+    row.getCell(base + 4).value = r.analysed;
+    row.getCell(base + 5).value = r.breakdown;
+    row.getCell(base + 6).value = r.lastUpload ?? "";
+    row.getCell(base + 7).value = r.samples.map((s) => `${s.title} [${s.style ?? "?"}]`).join("\n");
+    row.getCell(base + 7).alignment = { wrapText: true, vertical: "top" };
     if ((r.targetShare ?? 0) >= 0.5) animation++;
   }
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: base + heads.length } };
@@ -235,6 +240,17 @@ export async function writeResults(
     const src = ws.getRow(n);
     out.addRow([...pick.map((h) => src.getCell(colOf.get(h)!).value), r.targetShare, r.breakdown]);
     out.lastRow!.getCell(pick.length + 1).numFmt = "0%";
+  }
+  // Channels whose videos are mostly made with animation / generative-AI visuals.
+  const ai = wb.addWorksheet("AI-made channels");
+  ai.columns = [...pick, "AI-made share", `${TARGET_STYLE} share`, "Breakdown"].map((h) => ({ header: h, width: h === "YouTube link" ? 46 : 26 }));
+  ai.getRow(1).font = { bold: true };
+  const aiWinners = [...results].filter(([, r]) => (r.aiShare ?? 0) >= 0.5).sort((a, b) => b[1].aiShare! - a[1].aiShare! || (b[1].targetShare ?? 0) - (a[1].targetShare ?? 0));
+  for (const [n, r] of aiWinners) {
+    const src = ws.getRow(n);
+    ai.addRow([...pick.map((h) => src.getCell(colOf.get(h)!).value), r.aiShare, r.targetShare, r.breakdown]);
+    ai.lastRow!.getCell(pick.length + 1).numFmt = "0%";
+    ai.lastRow!.getCell(pick.length + 2).numFmt = "0%";
   }
   await wb.xlsx.writeFile(output);
   return { channels: results.size, animation };

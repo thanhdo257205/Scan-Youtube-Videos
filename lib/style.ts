@@ -2,7 +2,7 @@ import { geminiGenerate } from "./llm";
 import { StyleCache } from "./style-cache";
 import type { ClassifiedVideo } from "./types";
 
-export const STYLES = ["Animation", "Screen recording", "Talking head", "Slides / diagram", "Other"] as const;
+export const STYLES = ["Animation", "AI-generated visuals", "Screen recording", "Talking head", "Slides / diagram", "Other"] as const;
 export type VisualStyle = (typeof STYLES)[number];
 /** Thrown when Gemini keeps failing; carries every video with the styles obtained so far. */
 export class StyleAbort extends Error {
@@ -22,6 +22,7 @@ const DEFAULT_ANIMATION_DESC =
 
 const DESCRIPTIONS: Record<VisualStyle, string> = {
   Animation: process.env.STYLE_ANIMATION_DESCRIPTION || DEFAULT_ANIMATION_DESC,
+  "AI-generated visuals": "Imagery or video clearly made by generative AI: synthetic photoreal people or avatars, AI art, AI-made cinematic scenes, faceless AI-channel style visuals. Not a stylised cartoon explainer.",
   "Screen recording": "A real screen capture of software, a browser, an editor or a terminal.",
   "Talking head": "A real person speaking to camera is the main subject.",
   "Slides / diagram": "Static slides, plain text cards or flat diagrams, without an animated illustrated look.",

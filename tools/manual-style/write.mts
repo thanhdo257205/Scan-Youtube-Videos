@@ -34,3 +34,13 @@ for (const c of chans) {
 }
 console.log(`${results.size}/${chans.length} channels judged, ${bad} invalid style names ignored`);
 console.log(await writeResults(wb, ws, results, output));
+
+// Keep only the judged channels in the "Channels" sheet (the filtered list), renumber "#".
+const wb2 = new ExcelJS.Workbook();
+await wb2.xlsx.readFile(output);
+const ws2 = wb2.getWorksheet("Channels") ?? wb2.worksheets[0];
+for (let n = ws2.rowCount; n >= 2; n--) if (!results.has(n)) ws2.spliceRows(n, 1);
+for (let n = 2; n <= ws2.rowCount; n++) ws2.getRow(n).getCell(1).value = n - 1;
+ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws2.columnCount } };
+await wb2.xlsx.writeFile(output);
+console.log(`Kept ${ws2.rowCount - 1} channels in the Channels sheet`);
