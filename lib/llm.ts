@@ -123,7 +123,7 @@ function extractArray(text: string): unknown[] {
  */
 export async function askForArray(provider: string, prompt: string, allowed: string[]): Promise<unknown[]> {
   if (provider === "gemini") {
-    const data = await geminiGenerate(process.env.GEMINI_MODEL || "gemini-2.5-flash", {
+    const data = await geminiGenerate(process.env.GEMINI_MODEL || "gemini-3.8-flash", {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0,

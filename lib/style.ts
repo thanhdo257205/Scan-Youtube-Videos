@@ -19,7 +19,7 @@ const DESCRIPTIONS: Record<VisualStyle, string> = {
 
 const BATCH = 8;
 const DEFAULT_PAUSE_MS = 6000; // stay under free-tier requests-per-minute limits
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3.8-flash";
 
 async function thumbnail(id: string): Promise<string | undefined> {
   for (const name of ["hqdefault", "mqdefault"]) {
@@ -83,6 +83,7 @@ export async function analyzeStyles(
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const pause = Number(process.env.STYLE_PAUSE_MS) || DEFAULT_PAUSE_MS;
   const out = videos.map((v) => ({ ...v }));
+  let failures = 0; // consecutive failed batches
   for (let i = 0; i < out.length; i += BATCH) {
     const slice = out.slice(i, i + BATCH);
     const thumbs = await Promise.all(slice.map((v) => thumbnail(v.id)));
@@ -94,8 +95,13 @@ export async function analyzeStyles(
           x.v.style = res[j].style;
           x.v.styleConfidence = res[j].confidence;
         });
+        failures = 0;
       } catch (e) {
-        console.warn(`Style batch ${i / BATCH + 1} failed:`, e instanceof Error ? e.message : e);
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`Style batch ${i / BATCH + 1} failed: ${msg.split("\n")[0].slice(0, 200)}`);
+        if (++failures >= 3) {
+          throw new Error(`Stopping: ${failures} batches in a row failed (last: ${msg.slice(0, 300)}). Check GEMINI_API_KEY / GEMINI_MODEL.`);
+        }
       }
     }
     onProgress(`Analysed thumbnails ${Math.min(i + BATCH, out.length)}/${out.length}`);
