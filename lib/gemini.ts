@@ -1,8 +1,8 @@
+import { askForArray, configuredTextProviders } from "./llm";
 import { OTHER_TOPIC, TOPICS, classify } from "./topics";
 import type { ClassifiedVideo, VideoItem } from "./types";
 
 const BATCH = 40;
-const DEFAULT_MODEL = "gemini-2.5-flash";
 
 const TOPIC_HINTS: Record<string, string> = {
   "AI Agents": "AI agents, agentic systems, multi-agent, MCP, autonomous AI",
@@ -13,9 +13,8 @@ const TOPIC_HINTS: Record<string, string> = {
   [OTHER_TOPIC.name]: "anything that fits none of the above",
 };
 
-async function classifyBatch(batch: VideoItem[], key: string, model: string): Promise<string[]> {
-  const names = [...TOPICS.map((t) => t.name), OTHER_TOPIC.name];
-  const prompt = [
+function buildPrompt(batch: VideoItem[], names: string[]): string {
+  return [
     "Classify each YouTube video into exactly one topic. Topics:",
     ...names.map((n) => `- ${n}: ${TOPIC_HINTS[n]}`),
     "",
@@ -24,44 +23,38 @@ async function classifyBatch(batch: VideoItem[], key: string, model: string): Pr
     "",
     "Return a JSON array of topic names, one per video, in the same order.",
   ].join("\n");
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: "application/json",
-          responseSchema: { type: "ARRAY", items: { type: "STRING", enum: names } },
-        },
-      }),
-    },
-  );
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  const out = JSON.parse(text ?? "[]") as unknown;
-  if (!Array.isArray(out) || out.length !== batch.length) throw new Error("Gemini returned unexpected shape");
-  return out.map((t) => (names.includes(String(t)) ? String(t) : OTHER_TOPIC.name));
 }
 
-/** Classify with Gemini; any batch that fails falls back to keyword rules. */
-export async function classifyWithGemini(videos: VideoItem[], key: string): Promise<ClassifiedVideo[]> {
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+/**
+ * Classify with the configured LLM providers in order (Gemini keys -> Groq -> OpenRouter);
+ * a batch that every provider fails falls back to the keyword rules.
+ */
+export async function classifyWithLLM(videos: VideoItem[]): Promise<ClassifiedVideo[]> {
+  const names = [...TOPICS.map((t) => t.name), OTHER_TOPIC.name];
+  const providers = configuredTextProviders();
+  const dead = new Set<string>();
   const result: ClassifiedVideo[] = [];
+
   for (let i = 0; i < videos.length; i += BATCH) {
     const batch = videos.slice(i, i + BATCH);
-    let topics: string[];
-    try {
-      topics = await classifyBatch(batch, key, model);
-    } catch (e) {
-      console.warn(`Gemini failed for batch ${i / BATCH + 1}, using keyword rules:`, e instanceof Error ? e.message : e);
-      topics = batch.map(classify);
+    const prompt = buildPrompt(batch, names);
+    let topics: string[] | undefined;
+    for (const provider of providers) {
+      if (dead.has(provider)) continue;
+      try {
+        const out = await askForArray(provider, prompt, names);
+        if (out.length !== batch.length) throw new Error("unexpected number of results");
+        topics = out.map((t) => (names.includes(String(t)) ? String(t) : OTHER_TOPIC.name));
+        break;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`${provider} failed for batch ${i / BATCH + 1}: ${msg}`);
+        if (/No usable keys/.test(msg)) dead.add(provider);
+      }
     }
-    batch.forEach((v, j) => result.push({ ...v, topic: topics[j] }));
+    if (!topics) console.warn(`Batch ${i / BATCH + 1}: using keyword rules`);
+    const final = topics ?? batch.map(classify);
+    batch.forEach((v, j) => result.push({ ...v, topic: final[j] }));
   }
   return result;
 }

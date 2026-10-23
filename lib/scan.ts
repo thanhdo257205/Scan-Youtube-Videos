@@ -1,6 +1,7 @@
 import type { Workbook } from "exceljs";
 import { buildWorkbook } from "./excel";
-import { classifyWithGemini } from "./gemini";
+import { classifyWithLLM } from "./gemini";
+import { configuredTextProviders, geminiKeys } from "./llm";
 import { analyzeStyles } from "./style";
 import { classifyAll } from "./topics";
 import { fetchChannelVideos } from "./youtube";
@@ -17,11 +18,10 @@ export async function scanChannel(
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) throw new Error("Missing YOUTUBE_API_KEY environment variable (see .env.example)");
   const videos = await fetchChannelVideos(handle, key);
-  const geminiKey = process.env.GEMINI_API_KEY;
-  let classified = geminiKey ? await classifyWithGemini(videos, geminiKey) : classifyAll(videos);
+  let classified = configuredTextProviders().length ? await classifyWithLLM(videos) : classifyAll(videos);
   if (opts.style) {
-    if (!geminiKey) throw new Error("Style analysis needs GEMINI_API_KEY");
-    classified = await analyzeStyles(classified, geminiKey, opts.onProgress);
+    if (!geminiKeys().length) throw new Error("Style analysis needs GEMINI_API_KEY (or GEMINI_API_KEYS)");
+    classified = await analyzeStyles(classified, opts.onProgress);
   }
   const workbook = await buildWorkbook(classified, handle);
   return { workbook, count: videos.length };

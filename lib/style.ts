@@ -1,3 +1,4 @@
+import { geminiGenerate } from "./llm";
 import type { ClassifiedVideo } from "./types";
 
 export const STYLES = ["Animation", "Screen recording", "Talking head", "Slides / diagram", "Other"] as const;
@@ -37,7 +38,7 @@ interface StyleResult {
   confidence: number;
 }
 
-async function classifyBatch(images: { id: string; title: string; data: string }[], key: string, model: string): Promise<StyleResult[]> {
+async function classifyBatch(images: { id: string; title: string; data: string }[], model: string): Promise<StyleResult[]> {
   const parts: unknown[] = [
     {
       text: [
@@ -51,30 +52,21 @@ async function classifyBatch(images: { id: string; title: string; data: string }
       { inline_data: { mime_type: "image/jpeg", data: im.data } },
     ]),
   ];
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: { style: { type: "STRING", enum: [...STYLES] }, confidence: { type: "NUMBER" } },
-              required: ["style", "confidence"],
-            },
-          },
+  const data = await geminiGenerate(model, {
+    contents: [{ parts }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: { style: { type: "STRING", enum: [...STYLES] }, confidence: { type: "NUMBER" } },
+          required: ["style", "confidence"],
         },
-      }),
+      },
     },
-  );
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  });
   const out = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]") as StyleResult[];
   if (!Array.isArray(out) || out.length !== images.length) throw new Error("Gemini returned unexpected shape");
   return out.map((o) => ({
@@ -86,7 +78,6 @@ async function classifyBatch(images: { id: string; title: string; data: string }
 /** Adds `style` + `styleConfidence` to each video by looking at its thumbnail with Gemini. */
 export async function analyzeStyles(
   videos: ClassifiedVideo[],
-  key: string,
   onProgress: (msg: string) => void = () => {},
 ): Promise<ClassifiedVideo[]> {
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
@@ -98,7 +89,7 @@ export async function analyzeStyles(
     const ok = slice.map((v, j) => ({ v, data: thumbs[j] })).filter((x): x is { v: ClassifiedVideo; data: string } => !!x.data);
     if (ok.length) {
       try {
-        const res = await classifyBatch(ok.map((x) => ({ id: x.v.id, title: x.v.title, data: x.data })), key, model);
+        const res = await classifyBatch(ok.map((x) => ({ id: x.v.id, title: x.v.title, data: x.data })), model);
         ok.forEach((x, j) => {
           x.v.style = res[j].style;
           x.v.styleConfidence = res[j].confidence;

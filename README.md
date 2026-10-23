@@ -43,3 +43,9 @@ npm run scan -- --style     # needs GEMINI_API_KEY
 ```
 
 Gemini looks at each video's thumbnail and labels it Animation / Screen recording / Talking head / Slides / Other, adding `Visual style` and `Conf.` columns plus a separate `Animation style` sheet. A thumbnail is only a hint of the video, so check low-confidence rows. Describe what "Animation" means for you in `STYLE_ANIMATION_DESCRIPTION` (see `.env.example`). Free-tier rate limits are respected by pausing between batches, so a 500-video channel takes several minutes.
+
+## Several API keys and fallback providers
+
+- `GEMINI_API_KEYS=key1,key2` rotates Gemini keys when one hits a rate limit (429); a key that is rejected or out of daily quota is skipped for the rest of the run. Gemini quota is per Google Cloud project, so keys only help if they come from different projects.
+- Topic classification falls back Gemini -> Groq (`GROQ_API_KEY`) -> OpenRouter (`OPENROUTER_API_KEY`) -> keyword rules. These fallbacks are text-only; `--style` (thumbnail analysis) uses Gemini keys only.
+- Rate-limited and overloaded requests are retried automatically.
