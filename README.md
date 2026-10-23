@@ -59,3 +59,12 @@ CHANNEL_STYLE_SAMPLES=8 npm run channels:style           # videos sampled per ch
 ```
 
 Reads the `Channels` sheet made by `npm run channels` (needs a `YouTube link` column), takes each channel's latest videos, has Gemini classify their thumbnails, and writes a copy with `Dominant style`, `Animation share`, `Videos analysed`, `Style breakdown` and `Sampled videos` columns plus an `Animation channels` sheet (channels with at least 50% Animation). Needs `YOUTUBE_API_KEY` and a Gemini key; costs about 2 YouTube quota units per channel.
+
+Filters and resuming for `channels:style`:
+
+```bash
+npm run channels:style -- --with-concepts --min-subs=1000      # only relevant, non-tiny channels
+npm run channels:style -- --limit=50                           # first 50 matching channels (quick test)
+```
+
+Analysed thumbnails are cached in `.style-cache.json` (ignored by git), so after an interruption or error just run the same command again and it continues where it stopped. The cache is discarded automatically if the model or the style descriptions change. Network errors ("fetch failed") are retried automatically.

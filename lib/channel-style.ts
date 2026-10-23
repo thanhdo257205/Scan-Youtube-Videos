@@ -74,6 +74,12 @@ export interface Options {
   output: string;
   key: string;
   samples: number;
+  /** Only analyse channels with at least this many subscribers. */
+  minSubs?: number;
+  /** Only analyse channels that matched Agents / Automation / Digital Workers. */
+  withConcepts?: boolean;
+  /** Analyse at most this many channels (in file order). */
+  limit?: number;
   onProgress?: (msg: string) => void;
 }
 
@@ -89,12 +95,22 @@ export async function addChannelStyles(o: Options): Promise<{ channels: number; 
   if (!linkCol) throw new Error('Column "YouTube link" not found; is this a file made by `npm run channels`?');
   const idCol = col.get("Channel ID");
 
+  const subsCol = col.get("Subscribers");
+  const conceptsCol = col.get("Concepts");
   const rows: { n: number; ref: ChannelRef }[] = [];
   for (let n = 2; n <= ws.rowCount; n++) {
-    const ref = parseRef(idCol ? cellText(ws.getRow(n).getCell(idCol)) : "", cellText(ws.getRow(n).getCell(linkCol)));
-    if (ref) rows.push({ n, ref });
+    const row = ws.getRow(n);
+    const ref = parseRef(idCol ? cellText(row.getCell(idCol)) : "", cellText(row.getCell(linkCol)));
+    if (!ref) continue;
+    if (o.minSubs && subsCol) {
+      const subs = Number(row.getCell(subsCol).value);
+      if (!(subs >= o.minSubs)) continue; // also skips hidden subscriber counts
+    }
+    if (o.withConcepts && conceptsCol && !cellText(row.getCell(conceptsCol)).trim()) continue;
+    rows.push({ n, ref });
   }
-  log(`Reading latest ${o.samples} videos of ${rows.length} channels...`);
+  if (o.limit) rows.length = Math.min(rows.length, o.limit);
+  log(`Reading latest ${o.samples} videos of ${rows.length} channels (of ${ws.rowCount - 1} in the file)...`);
 
   const byRow = new Map<number, Sample[]>();
   await mapPool(rows, 5, async ({ n, ref }) => {

@@ -50,7 +50,15 @@ async function withKeys(p: KeyPool, send: (key: string) => Promise<Response>): P
   let last = "";
   for (let i = 0; i < attempts; i++) {
     const key = await p.next();
-    const res = await send(key);
+    let res: Response;
+    try {
+      res = await send(key);
+    } catch (e) {
+      // Network hiccup (e.g. "fetch failed"): back off and retry.
+      last = e instanceof Error ? e.message : String(e);
+      await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+      continue;
+    }
     if (res.ok) return res.json();
     last = `${res.status}: ${(await res.text()).slice(0, 300)}`;
     if (res.status === 429) {

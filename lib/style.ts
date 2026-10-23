@@ -1,4 +1,5 @@
 import { geminiGenerate } from "./llm";
+import { StyleCache } from "./style-cache";
 import type { ClassifiedVideo } from "./types";
 
 export const STYLES = ["Animation", "Screen recording", "Talking head", "Slides / diagram", "Other"] as const;
@@ -82,7 +83,18 @@ export async function analyzeStyles(
 ): Promise<ClassifiedVideo[]> {
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const pause = Number(process.env.STYLE_PAUSE_MS) || DEFAULT_PAUSE_MS;
-  const out = videos.map((v) => ({ ...v }));
+  const all = videos.map((v) => ({ ...v }));
+  const cache = new StyleCache(process.env.STYLE_CACHE || ".style-cache.json", { model, DESCRIPTIONS });
+  // Reuse earlier results, only the rest goes to Gemini.
+  const out: ClassifiedVideo[] = [];
+  for (const v of all) {
+    const hit = cache.get(v.id);
+    if (hit) {
+      v.style = hit.style;
+      v.styleConfidence = hit.confidence;
+    } else out.push(v);
+  }
+  if (all.length > out.length) onProgress(`Reusing ${all.length - out.length} cached results, ${out.length} left to analyse`);
   let failures = 0; // consecutive failed batches
   for (let i = 0; i < out.length; i += BATCH) {
     const slice = out.slice(i, i + BATCH);
@@ -94,7 +106,9 @@ export async function analyzeStyles(
         ok.forEach((x, j) => {
           x.v.style = res[j].style;
           x.v.styleConfidence = res[j].confidence;
+          cache.set(x.v.id, { style: res[j].style, confidence: res[j].confidence });
         });
+        cache.save();
         failures = 0;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -107,5 +121,5 @@ export async function analyzeStyles(
     onProgress(`Analysed thumbnails ${Math.min(i + BATCH, out.length)}/${out.length}`);
     if (i + BATCH < out.length) await new Promise((r) => setTimeout(r, pause));
   }
-  return out;
+  return all;
 }
