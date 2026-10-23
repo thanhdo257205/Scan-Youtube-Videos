@@ -44,11 +44,14 @@ async function latestVideos(ref: ChannelRef, count: number, key: string): Promis
   );
   const uploads = ch.items?.[0]?.contentDetails.relatedPlaylists.uploads;
   if (!uploads) return [];
-  const pl = await api<{ items: { contentDetails: { videoId: string }; snippet: { title: string } }[] }>(
-    "playlistItems",
-    { part: "snippet,contentDetails", playlistId: uploads, maxResults: String(count) },
-    key,
-  );
+  let pl: { items: { contentDetails: { videoId: string }; snippet: { title: string } }[] };
+  try {
+    pl = await api("playlistItems", { part: "snippet,contentDetails", playlistId: uploads, maxResults: String(count) }, key);
+  } catch (e) {
+    // Deleted, hidden or video-less channels: nothing to sample.
+    if (e instanceof Error && /playlistNotFound/.test(e.message)) return [];
+    throw e;
+  }
   return pl.items.map((i) => ({ id: i.contentDetails.videoId, title: i.snippet.title }));
 }
 
@@ -98,7 +101,7 @@ export async function addChannelStyles(o: Options): Promise<{ channels: number; 
     try {
       byRow.set(n, await latestVideos(ref, o.samples, o.key));
     } catch (e) {
-      console.warn(`Row ${n}: ${e instanceof Error ? e.message : e}`);
+      console.warn(`Row ${n}: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`);
       byRow.set(n, []);
     }
   });
